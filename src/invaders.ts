@@ -22,7 +22,7 @@ function initializeCanvas(): void {
   }
 
   context.scale(2, 2);
-  context.fillStyle = 'rgb(0, 0, 255)';
+  context.fillStyle = 'rgb(100, 0, 255)';
   context.fillRect(0, 0, canvas.width, canvas.height);
 }
 
