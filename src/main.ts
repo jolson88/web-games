@@ -1,83 +1,98 @@
 import "./style.css";
+import vertexShaderCode from "./shaders/vertex.wgsl";
+import fragmentShaderCode from "./shaders/fragment.wgsl";
 
-const adapter = await navigator.gpu?.requestAdapter();
-const device = await adapter?.requestDevice();
-if (!device) {
-  throw new Error("WebGPU not supported");
+let device: GPUDevice;
+let context: GPUCanvasContext;
+let pipeline: GPURenderPipeline;
+
+async function start() {
+  if (!navigator.gpu) {
+    throw new Error("This browser does not support WebGPU");
+  }
+
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error("This browser supports WebGPU but it appears disabled");
+  }
+
+  device = await adapter.requestDevice();
+
+  const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+  const devicePixelRatio = window.devicePixelRatio || 1;
+  const width = window.innerWidth * devicePixelRatio;
+  const height = window.innerHeight * devicePixelRatio;
+  canvas.width = Math.min(width, device.limits.maxTextureDimension2D);
+  canvas.height = Math.min(height, device.limits.maxTextureDimension2D);
+
+  const contextCheck = canvas.getContext("webgpu");
+  const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  if (!contextCheck) {
+    throw new Error("WebGPU not supported");
+  }
+  context = contextCheck;
+  context.configure({
+    device,
+    format: canvasFormat,
+    alphaMode: "premultiplied",
+  });
+
+  pipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module: device.createShaderModule({
+        code: vertexShaderCode,
+      }),
+      entryPoint: "main",
+    },
+    fragment: {
+      module: device.createShaderModule({
+        code: fragmentShaderCode,
+      }),
+      entryPoint: "main",
+      targets: [{ format: canvasFormat }],
+    },
+    primitive: {
+      topology: "triangle-list",
+    },
+  });
+
+  const canvasResizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const canvas = entry.target as HTMLCanvasElement;
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const width = window.innerWidth * devicePixelRatio;
+      const height = window.innerHeight * devicePixelRatio;
+      canvas.width = Math.min(width, device.limits.maxTextureDimension2D);
+      canvas.height = Math.min(height, device.limits.maxTextureDimension2D);
+    }
+  });
+  canvasResizeObserver.observe(canvas);
+
+  requestAnimationFrame(frame);
 }
 
-const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
-canvas.height = window.innerHeight;
-canvas.width = window.innerWidth;
-const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
-
-const context = canvas.getContext("webgpu");
-if (!context) {
-  throw new Error("WebGPU not supported");
-}
-
-context.configure({
-  device,
-  format: canvasFormat,
-});
-
-const shaderModule = device.createShaderModule({
-  label: "Hard-coded red triangle shaders",
-  code: `
-    @vertex fn vs(
-        @builtin(vertex_index) vertexIndex: u32
-    ) -> @builtin(position) vec4f {
-        var pos = array<vec2f, 3>(
-            vec2f( 0.0,  0.5),
-            vec2f(-0.5, -0.5),
-            vec2f( 0.5, -0.5)
-        );
-
-        return vec4f(pos[vertexIndex], 0.0, 1.0);
-    }
-
-    @fragment fn fs() -> @location(0) vec4f {
-        return vec4f(1.0, 0.0, 0.0, 1.0);
-    }
-  `,
-});
-
-const pipeline = device.createRenderPipeline({
-  label: "Hard-coded red triangle pipeline",
-  layout: "auto",
-  vertex: {
-    module: shaderModule,
-    entryPoint: "vs",
-  },
-  fragment: {
-    module: shaderModule,
-    entryPoint: "fs",
-    targets: [{ format: canvasFormat }],
-  },
-});
-
-function render(device: GPUDevice, context: GPUCanvasContext): void {
+function frame(): void {
   const renderPassDescriptor: GPURenderPassDescriptor = {
-    label: "Basic canvas render pass",
+    label: "Basic rendering pass",
     colorAttachments: [
       {
         view: context.getCurrentTexture().createView(),
-        clearValue: [0.3, 0.3, 0.3, 1.0],
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
         loadOp: "clear",
         storeOp: "store",
       },
     ],
   };
 
-  const encoder = device.createCommandEncoder({ label: "Our command encoder" });
+  const commandEncoder = device.createCommandEncoder();
+  const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
+  renderPass.setPipeline(pipeline);
+  renderPass.draw(3, 1, 0, 0);
+  renderPass.end();
 
-  const pass = encoder.beginRenderPass(renderPassDescriptor);
-  pass.setPipeline(pipeline);
-  pass.draw(3); // Call vertex shader three times
-  pass.end();
-
-  const commandBuffer = encoder.finish();
-  device.queue.submit([commandBuffer]);
+  device.queue.submit([commandEncoder.finish()]);
+  requestAnimationFrame(frame);
 }
 
-render(device, context);
+start();
