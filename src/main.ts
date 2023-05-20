@@ -2,9 +2,15 @@ import "./style.css";
 import vertexShaderCode from "./shaders/vertex.wgsl";
 import fragmentShaderCode from "./shaders/fragment.wgsl";
 
+let GAME_WIDTH = 224;
+let GAME_HEIGHT = 288;
+let GAME_ASPECT_RATIO = GAME_WIDTH / GAME_HEIGHT;
+
 let device: GPUDevice;
 let context: GPUCanvasContext;
 let pipeline: GPURenderPipeline;
+let gameStartTime: DOMHighResTimeStamp;
+let lastFrameTime: DOMHighResTimeStamp;
 
 async function start() {
   if (!navigator.gpu) {
@@ -20,10 +26,12 @@ async function start() {
 
   const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
   const devicePixelRatio = window.devicePixelRatio || 1;
-  const width = window.innerWidth * devicePixelRatio;
   const height = window.innerHeight * devicePixelRatio;
-  canvas.width = Math.min(width, device.limits.maxTextureDimension2D);
   canvas.height = Math.min(height, device.limits.maxTextureDimension2D);
+  canvas.width = Math.min(
+    height * GAME_ASPECT_RATIO,
+    device.limits.maxTextureDimension2D
+  );
 
   const contextCheck = canvas.getContext("webgpu");
   const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
@@ -57,22 +65,26 @@ async function start() {
     },
   });
 
-  const canvasResizeObserver = new ResizeObserver((entries) => {
-    for (const entry of entries) {
-      const canvas = entry.target as HTMLCanvasElement;
-      const devicePixelRatio = window.devicePixelRatio || 1;
-      const width = window.innerWidth * devicePixelRatio;
-      const height = window.innerHeight * devicePixelRatio;
-      canvas.width = Math.min(width, device.limits.maxTextureDimension2D);
-      canvas.height = Math.min(height, device.limits.maxTextureDimension2D);
-    }
-  });
-  canvasResizeObserver.observe(canvas);
-
+  gameStartTime = performance.now();
+  lastFrameTime = performance.now();
   requestAnimationFrame(frame);
 }
 
-function frame(): void {
+function frame(time: DOMHighResTimeStamp): void {
+  const deltaTimeInMs = time - lastFrameTime;
+
+  simulate(deltaTimeInMs);
+  render(device, context);
+
+  lastFrameTime = time;
+  requestAnimationFrame(frame);
+}
+
+function simulate(_deltaTimeInMs: number): void {
+  // Do nothing yet
+}
+
+function render(device: GPUDevice, context: GPUCanvasContext): void {
   const renderPassDescriptor: GPURenderPassDescriptor = {
     label: "Basic rendering pass",
     colorAttachments: [
@@ -85,14 +97,12 @@ function frame(): void {
     ],
   };
 
-  const commandEncoder = device.createCommandEncoder();
-  const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
+  const encoder = device.createCommandEncoder();
+  const renderPass = encoder.beginRenderPass(renderPassDescriptor);
   renderPass.setPipeline(pipeline);
   renderPass.draw(3, 1, 0, 0);
   renderPass.end();
-
-  device.queue.submit([commandEncoder.finish()]);
-  requestAnimationFrame(frame);
+  device.queue.submit([encoder.finish()]);
 }
 
 start();
