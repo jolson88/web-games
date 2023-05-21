@@ -1,8 +1,8 @@
 import "./style.css";
-import vertexShaderCode from "./shaders/vertex.wgsl";
-import fragmentShaderCode from "./shaders/fragment.wgsl";
+import shaderCode from "./shaders/shaders.wgsl";
 import { createBuffer } from "./graphics";
 
+let FLOAT32_SIZE = 4;
 let GAME_WIDTH = 224;
 let GAME_HEIGHT = 288;
 let GAME_ASPECT_RATIO = GAME_WIDTH / GAME_HEIGHT;
@@ -10,8 +10,9 @@ let GAME_ASPECT_RATIO = GAME_WIDTH / GAME_HEIGHT;
 let device: GPUDevice;
 let context: GPUCanvasContext;
 let pipeline: GPURenderPipeline;
-let uniformBindGroup: GPUBindGroup;
-let uniformBuffer: GPUBuffer;
+let quadVertexBuffer: GPUBuffer;
+let quadVertexBufferLayout: GPUVertexBufferLayout;
+let quadIndexBuffer: GPUBuffer;
 
 let gameStartTime: DOMHighResTimeStamp;
 let lastFrameTime: DOMHighResTimeStamp;
@@ -49,26 +50,58 @@ async function start() {
     alphaMode: "premultiplied",
   });
 
+  const quadVertices = new Float32Array([
+    0,
+    GAME_HEIGHT,
+    GAME_WIDTH,
+    GAME_HEIGHT,
+    0,
+    0,
+    GAME_WIDTH,
+    0,
+  ]);
+  const quadIndices = new Uint16Array([0, 1, 2, 2, 1, 3]);
+  quadVertexBuffer = createBuffer(
+    device,
+    quadVertices,
+    GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+  );
+  quadVertexBufferLayout = {
+    arrayStride: FLOAT32_SIZE * 2,
+    attributes: [
+      {
+        shaderLocation: 0,
+        format: "float32x2",
+        offset: 0,
+      },
+    ],
+  };
+  quadIndexBuffer = createBuffer(
+    device,
+    quadIndices,
+    GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+  );
+
   pipeline = device.createRenderPipeline({
     layout: "auto",
     vertex: {
       module: device.createShaderModule({
-        code: vertexShaderCode,
+        code: shaderCode,
       }),
-      entryPoint: "main",
+      entryPoint: "vertexMain",
+      buffers: [quadVertexBufferLayout],
     },
     fragment: {
       module: device.createShaderModule({
-        code: fragmentShaderCode,
+        code: shaderCode,
       }),
-      entryPoint: "main",
+      entryPoint: "fragmentMain",
       targets: [{ format: canvasFormat }],
     },
     primitive: {
       topology: "triangle-list",
     },
   });
-
   gameStartTime = performance.now();
   lastFrameTime = performance.now();
   requestAnimationFrame(frame);
@@ -90,12 +123,12 @@ function simulate(_deltaTimeInMs: number): void {
 
 function render(device: GPUDevice, context: GPUCanvasContext): void {
   const uniformData = new Float32Array([GAME_WIDTH, GAME_HEIGHT]);
-  uniformBuffer = createBuffer(
+  const uniformBuffer = createBuffer(
     device,
     uniformData,
     GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   );
-  uniformBindGroup = device.createBindGroup({
+  const uniformBindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       {
@@ -120,11 +153,13 @@ function render(device: GPUDevice, context: GPUCanvasContext): void {
   };
 
   const commandEncoder = device.createCommandEncoder();
-  const renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-  renderPassEncoder.setBindGroup(0, uniformBindGroup);
-  renderPassEncoder.setPipeline(pipeline);
-  renderPassEncoder.draw(3, 1, 0, 0);
-  renderPassEncoder.end();
+  const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
+  renderPass.setBindGroup(0, uniformBindGroup);
+  renderPass.setVertexBuffer(0, quadVertexBuffer);
+  renderPass.setIndexBuffer(quadIndexBuffer, "uint16");
+  renderPass.setPipeline(pipeline);
+  renderPass.drawIndexed(3, 1);
+  renderPass.end();
   device.queue.submit([commandEncoder.finish()]);
 }
 
