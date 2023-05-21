@@ -1,6 +1,7 @@
 import "./style.css";
 import vertexShaderCode from "./shaders/vertex.wgsl";
 import fragmentShaderCode from "./shaders/fragment.wgsl";
+import { createBuffer } from "./graphics";
 
 let GAME_WIDTH = 224;
 let GAME_HEIGHT = 288;
@@ -9,6 +10,9 @@ let GAME_ASPECT_RATIO = GAME_WIDTH / GAME_HEIGHT;
 let device: GPUDevice;
 let context: GPUCanvasContext;
 let pipeline: GPURenderPipeline;
+let uniformBindGroup: GPUBindGroup;
+let uniformBuffer: GPUBuffer;
+
 let gameStartTime: DOMHighResTimeStamp;
 let lastFrameTime: DOMHighResTimeStamp;
 
@@ -85,6 +89,24 @@ function simulate(_deltaTimeInMs: number): void {
 }
 
 function render(device: GPUDevice, context: GPUCanvasContext): void {
+  const uniformData = new Float32Array([GAME_WIDTH, GAME_HEIGHT]);
+  uniformBuffer = createBuffer(
+    device,
+    uniformData,
+    GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  );
+  uniformBindGroup = device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(0),
+    entries: [
+      {
+        binding: 0,
+        resource: {
+          buffer: uniformBuffer,
+        },
+      },
+    ],
+  });
+
   const renderPassDescriptor: GPURenderPassDescriptor = {
     label: "Basic rendering pass",
     colorAttachments: [
@@ -97,12 +119,13 @@ function render(device: GPUDevice, context: GPUCanvasContext): void {
     ],
   };
 
-  const encoder = device.createCommandEncoder();
-  const renderPass = encoder.beginRenderPass(renderPassDescriptor);
-  renderPass.setPipeline(pipeline);
-  renderPass.draw(3, 1, 0, 0);
-  renderPass.end();
-  device.queue.submit([encoder.finish()]);
+  const commandEncoder = device.createCommandEncoder();
+  const renderPassEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+  renderPassEncoder.setBindGroup(0, uniformBindGroup);
+  renderPassEncoder.setPipeline(pipeline);
+  renderPassEncoder.draw(3, 1, 0, 0);
+  renderPassEncoder.end();
+  device.queue.submit([commandEncoder.finish()]);
 }
 
 start();
