@@ -1,14 +1,15 @@
 struct UniformBuffer {
-  gameWidth: f32,
-  gameHeight: f32,
-  color: vec4<f32>
+  gameDimensions: vec2<f32>,
+  position: vec2<f32>,
+  color: vec4<f32>,
+  scale: vec2<f32>,
 };
 
 @group(0) @binding(0)
 var<uniform> uniforms: UniformBuffer;
 
 struct VertexShaderOutput {
-  @builtin(position) clipSpacePosition: vec4<f32>,
+  @builtin(position) position: vec4<f32>,
   @location(0) color: vec4<f32>
 };
 
@@ -16,13 +17,13 @@ struct VertexShaderOutput {
 fn vertexMain(
   @location(0) vertexPosition: vec2<f32>
 ) -> VertexShaderOutput {
-  // Clip space is in the range [-1, 1] for all dimensions
-  // Our vertices coming from game
-  var x = (vertexPosition.x / uniforms.gameWidth * 2) - 1;
-  var y = (vertexPosition.y / uniforms.gameHeight * 2) - 1;
+  var x = (vertexPosition.x * uniforms.scale.x) + uniforms.position.x;
+  var y = (vertexPosition.y * uniforms.scale.y) + uniforms.position.y;
+  var clipX = (x / uniforms.gameDimensions.x * 2) - 1;
+  var clipY = (y / uniforms.gameDimensions.y * 2) - 1;
 
   var output: VertexShaderOutput;
-  output.clipSpacePosition = vec4<f32>(x, y, 0.0, 1.0);
+  output.position = vec4<f32>(clipX, clipY, 0.0, 1.0);
   output.color = uniforms.color;
   return output;
 }
