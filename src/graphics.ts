@@ -18,10 +18,20 @@ export interface Dimensions {
   height: number,
 }
 
-let quadPipeline: GPURenderPipeline;
-let quadVertexBuffer: GPUBuffer;
+interface RenderSimpleQuadRequest {
+  uniformValues: Float32Array,
+  uniformBuffer: GPUBuffer,
+  uniformBindGroup: GPUBindGroup,
+}
+
+let simpleQuadPipeline: GPURenderPipeline;
+let simpleQuadVertexBuffer: GPUBuffer;
+let simpleQuadRenderRequests: Array<RenderSimpleQuadRequest> = [];
 
 export function clearScreen(device: GPUDevice, context: GPUCanvasContext, color: Color): void {
+  simpleQuadRenderRequests.splice(0, simpleQuadRenderRequests.length);
+
+  const commandEncoder = device.createCommandEncoder();
   const renderPassDescriptor: GPURenderPassDescriptor = {
     label: "Clearing pass",
     colorAttachments: [
@@ -33,20 +43,17 @@ export function clearScreen(device: GPUDevice, context: GPUCanvasContext, color:
       },
     ],
   };
-
-  const commandEncoder = device.createCommandEncoder();
   const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
   renderPass.end();
   device.queue.submit([commandEncoder.finish()]);
 }
 
 export function drawColoredQuad(device: GPUDevice,
-  context: GPUCanvasContext,
   position: Vector2,
   dimensions: Dimensions,
   color: Color,
 ): void {
-  if (!quadPipeline) {
+  if (!simpleQuadPipeline) {
     createSimpleQuadPipeline(device);
   }
 
@@ -62,7 +69,7 @@ export function drawColoredQuad(device: GPUDevice,
     GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   );
   const uniformBindGroup = device.createBindGroup({
-    layout: quadPipeline.getBindGroupLayout(0),
+    layout: simpleQuadPipeline.getBindGroupLayout(0),
     entries: [{
       binding: 0,
       resource: {
@@ -71,44 +78,49 @@ export function drawColoredQuad(device: GPUDevice,
     }],
   });
 
-  // @speed We should probably be doing more work within a single encoder.
-  // Look at adding them to a queue that we flush, or a callback...
-  // Perhaps code calling these functions would look like this instead:
-  //   beginDrawingQuads(device, context, (renderer) => {
-  //     renderer.draw(x0, y0, width0, height0, color0);
-  //     renderer.draw(x1, y1, width1, height1, color1);
-  //     ...
-  //   });
-  // Or it could be a builder pattern (I think I like this more):
-  //   beginDrawingQuads(device, context)
-  //     .draw(x0, y0, width0, height0, color0)
-  //     .draw(x1, y1, width1, height1, color1)
-  //     .submit();
-  // I think the builder pattern better captures the nature of the underlying
-  // platform instead of trying to enforce a leaky abstraction.
-  //
-  // This might all be overkill though as we could likely handle it by just having
-  // a submit() function here that handles "flushing" all the render calls. Lots of value
-  // in KISS.
-  const commandEncoder = device.createCommandEncoder();
-  const renderPass = commandEncoder.beginRenderPass({
-    label: "Simple quad rendering pass",
-    colorAttachments: [{
-      view: context.getCurrentTexture().createView(),
-      loadOp: "load",
-      storeOp: "store",
-    }],
+  simpleQuadRenderRequests.push({
+    uniformValues,
+    uniformBuffer,
+    uniformBindGroup
   });
-  device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
-  renderPass.setBindGroup(0, uniformBindGroup);
-  renderPass.setVertexBuffer(0, quadVertexBuffer);
-  renderPass.setPipeline(quadPipeline);
-  renderPass.draw(3, 1, 0);
-  renderPass.draw(3, 1, 3);
-  renderPass.end();
+}
+
+export function submit(device: GPUDevice, context: GPUCanvasContext): void {
+  submitSimpleQuads(device, context);
+}
+
+function submitSimpleQuads(device: GPUDevice, context: GPUCanvasContext): void {
+  if (!simpleQuadPipeline) {
+    createSimpleQuadPipeline(device);
+  }
+
+  let renderRequest: RenderSimpleQuadRequest;
+  const commandEncoder = device.createCommandEncoder();
+  for (let i = 0; i < simpleQuadRenderRequests.length; i++) {
+    renderRequest = simpleQuadRenderRequests[i];
+    const renderPass = commandEncoder.beginRenderPass({
+      label: `Simple rendering pass for quad ${i}`,
+      colorAttachments: [{
+        view: context.getCurrentTexture().createView(),
+        loadOp: "load",
+        storeOp: "store",
+      }],
+    });
+    device.queue.writeBuffer(renderRequest.uniformBuffer, 0, renderRequest.uniformValues);
+    renderPass.setBindGroup(0, renderRequest.uniformBindGroup);
+    renderPass.setVertexBuffer(0, simpleQuadVertexBuffer);
+    renderPass.setPipeline(simpleQuadPipeline);
+    renderPass.draw(3, 1, 0);
+    renderPass.draw(3, 1, 3);
+    renderPass.end();
+  }
   device.queue.submit([commandEncoder.finish()]);
 
-  uniformBuffer.destroy();
+  for (let renderRequest of simpleQuadRenderRequests) {
+    renderRequest.uniformBuffer.destroy();
+  }
+
+  simpleQuadRenderRequests.slice(0, simpleQuadRenderRequests.length);
 }
 
 function alignToBytes(bytes: number, value: number): number {
@@ -145,7 +157,7 @@ function createSimpleQuadPipeline(device: GPUDevice): void {
       offset: 0,
     }],
   };
-  quadVertexBuffer = createBuffer(
+  simpleQuadVertexBuffer = createBuffer(
     device,
     new Float32Array([
       -0.5, 0.5,
@@ -158,7 +170,7 @@ function createSimpleQuadPipeline(device: GPUDevice): void {
     GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
   );
 
-  quadPipeline = device.createRenderPipeline({
+  simpleQuadPipeline = device.createRenderPipeline({
     layout: "auto",
     vertex: {
       module: device.createShaderModule({

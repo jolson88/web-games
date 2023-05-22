@@ -1,5 +1,5 @@
 import "./style.css";
-import { clearScreen, drawColoredQuad } from "./graphics";
+import * as Graphics from "./graphics";
 import { GAME_ASPECT_RATIO } from "./constants";
 
 let device: GPUDevice;
@@ -59,26 +59,28 @@ function simulate(_deltaTimeInMs: number): void {
 }
 
 function render(device: GPUDevice, context: GPUCanvasContext): void {
-  clearScreen(device, context, { r: 0.0, g: 0.0, b: 0.0 });
+  Graphics.clearScreen(device, context, { r: 0.0, g: 0.0, b: 0.0 });
 
-  drawColoredQuad(
-    device, context,
+  Graphics.drawColoredQuad(
+    device,
     { x: 100, y: 100 },
     { width: 50, height: 50 },
     { r: 1.0, g: 0.0, b: 0.0 }
   );
-  drawColoredQuad(
-    device, context,
+  Graphics.drawColoredQuad(
+    device,
     { x: 100, y: 200 },
     { width: 190, height: 5 },
     { r: 0.0, g: 1.0, b: 0.0 }
   );
-  drawColoredQuad(
-    device, context,
+  Graphics.drawColoredQuad(
+    device,
     { x: 130, y: 130 },
     { width: 50, height: 50 },
     { r: 0.0, g: 0.0, b: 1.0 }
   );
+
+  Graphics.submit(device, context);
 }
 
 start();
