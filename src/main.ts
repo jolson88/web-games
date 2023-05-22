@@ -1,6 +1,6 @@
 import "./style.css";
-import shaderCode from "./shaders/shaders.wgsl";
-import { createBuffer } from "./graphics";
+import shaderCode from "./shaders/simpleShader.wgsl";
+import { clearScreen, Color, createBuffer } from "./graphics";
 
 let FLOAT32_SIZE = 4;
 let GAME_WIDTH = 224;
@@ -10,11 +10,9 @@ let GAME_ASPECT_RATIO = GAME_WIDTH / GAME_HEIGHT;
 let device: GPUDevice;
 let context: GPUCanvasContext;
 let pipeline: GPURenderPipeline;
-let quadVertexBuffer: GPUBuffer;
 let quadVertexBufferLayout: GPUVertexBufferLayout;
 let quadIndexBuffer: GPUBuffer;
 
-let gameStartTime: DOMHighResTimeStamp;
 let lastFrameTime: DOMHighResTimeStamp;
 
 async function start() {
@@ -50,31 +48,14 @@ async function start() {
     alphaMode: "premultiplied",
   });
 
-  const quadVertices = new Float32Array([
-    0,
-    GAME_HEIGHT,
-    GAME_WIDTH,
-    GAME_HEIGHT,
-    0,
-    0,
-    GAME_WIDTH,
-    0,
-  ]);
   const quadIndices = new Uint16Array([0, 1, 2, 2, 1, 3]);
-  quadVertexBuffer = createBuffer(
-    device,
-    quadVertices,
-    GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-  );
   quadVertexBufferLayout = {
     arrayStride: FLOAT32_SIZE * 2,
-    attributes: [
-      {
-        shaderLocation: 0,
-        format: "float32x2",
-        offset: 0,
-      },
-    ],
+    attributes: [{
+      shaderLocation: 0,
+      format: "float32x2",
+      offset: 0,
+    }],
   };
   quadIndexBuffer = createBuffer(
     device,
@@ -102,7 +83,7 @@ async function start() {
       topology: "triangle-list",
     },
   });
-  gameStartTime = performance.now();
+
   lastFrameTime = performance.now();
   requestAnimationFrame(frame);
 }
@@ -122,31 +103,57 @@ function simulate(_deltaTimeInMs: number): void {
 }
 
 function render(device: GPUDevice, context: GPUCanvasContext): void {
-  const uniformData = new Float32Array([GAME_WIDTH, GAME_HEIGHT]);
+  clearScreen(device, context, { r: 0.0, g: 0.0, b: 0.0 });
+
+  drawColoredQuad(
+    device, context,
+    100, 100,
+    50, 50,
+    { r: 0.0, g: 1.0, b: 0.0 }
+  );
+}
+
+function drawColoredQuad(device: GPUDevice, context: GPUCanvasContext,
+  x: number, y: number,
+  width: number, height: number,
+  color: Color,
+): void {
   const uniformBuffer = createBuffer(
     device,
-    uniformData,
+    new Float32Array([
+      GAME_WIDTH, GAME_HEIGHT,
+      color.r, color.g, color.b, color.a ?? 1.0
+    ]),
     GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   );
   const uniformBindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      {
-        binding: 0,
-        resource: {
-          buffer: uniformBuffer,
-        },
+    entries: [{
+      binding: 0,
+      resource: {
+        buffer: uniformBuffer,
       },
-    ],
+    }],
   });
 
+  const quadVertexBuffer = createBuffer(
+    device,
+    new Float32Array([
+      x, y,
+      x + width, y,
+      x, y - height,
+      x + width, y - height,
+    ]),
+    GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+  );
+
   const renderPassDescriptor: GPURenderPassDescriptor = {
-    label: "Basic rendering pass",
+    label: "Simple quad rendering pass",
     colorAttachments: [
       {
         view: context.getCurrentTexture().createView(),
         clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear",
+        loadOp: "load",
         storeOp: "store",
       },
     ],
@@ -158,7 +165,8 @@ function render(device: GPUDevice, context: GPUCanvasContext): void {
   renderPass.setVertexBuffer(0, quadVertexBuffer);
   renderPass.setIndexBuffer(quadIndexBuffer, "uint16");
   renderPass.setPipeline(pipeline);
-  renderPass.drawIndexed(3, 1);
+  renderPass.drawIndexed(3, 1, 0);
+  renderPass.drawIndexed(3, 1, 3);
   renderPass.end();
   device.queue.submit([commandEncoder.finish()]);
 }
