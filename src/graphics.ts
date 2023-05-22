@@ -8,6 +8,16 @@ export interface Color {
   a?: number,
 }
 
+export interface Vector2 {
+  x: number,
+  y: number,
+}
+
+export interface Dimensions {
+  width: number,
+  height: number,
+}
+
 let quadPipeline: GPURenderPipeline;
 let quadVertexBuffer: GPUBuffer;
 
@@ -30,23 +40,21 @@ export function clearScreen(device: GPUDevice, context: GPUCanvasContext, color:
   device.queue.submit([commandEncoder.finish()]);
 }
 
-export function drawColoredQuad(device: GPUDevice, context: GPUCanvasContext,
-  x: number, y: number,
-  width: number, height: number,
+export function drawColoredQuad(device: GPUDevice,
+  context: GPUCanvasContext,
+  position: Vector2,
+  dimensions: Dimensions,
   color: Color,
 ): void {
   if (!quadPipeline) {
     createSimpleQuadPipeline(device);
   }
 
-  const centerX = x + (width / 2);
-  const centerY = y - (height / 2);
-
   const uniformValues = new Float32Array([
     GAME_WIDTH, GAME_HEIGHT,
-    centerX, centerY,
+    position.x, position.y,
     color.r, color.g, color.b, color.a ?? 1.0,
-    width, height,
+    dimensions.width, dimensions.height,
   ]);
   const uniformBuffer = createBuffer(
     device,

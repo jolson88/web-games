@@ -63,20 +63,20 @@ function render(device: GPUDevice, context: GPUCanvasContext): void {
 
   drawColoredQuad(
     device, context,
-    100, 100,
-    50, 50,
+    { x: 100, y: 100 },
+    { width: 50, height: 50 },
     { r: 1.0, g: 0.0, b: 0.0 }
   );
   drawColoredQuad(
     device, context,
-    10, 200,
-    190, 5,
+    { x: 100, y: 200 },
+    { width: 190, height: 5 },
     { r: 0.0, g: 1.0, b: 0.0 }
   );
   drawColoredQuad(
     device, context,
-    130, 130,
-    50, 50,
+    { x: 130, y: 130 },
+    { width: 50, height: 50 },
     { r: 0.0, g: 0.0, b: 1.0 }
   );
 }
