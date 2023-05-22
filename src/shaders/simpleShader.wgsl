@@ -17,13 +17,13 @@ struct VertexShaderOutput {
 fn vertexMain(
   @location(0) vertexPosition: vec2<f32>
 ) -> VertexShaderOutput {
-  var x = (vertexPosition.x * uniforms.scale.x) + uniforms.position.x;
-  var y = (vertexPosition.y * uniforms.scale.y) + uniforms.position.y;
-  var clipX = (x / uniforms.gameDimensions.x * 2) - 1;
-  var clipY = (y / uniforms.gameDimensions.y * 2) - 1;
+  var gamePosition = (vertexPosition * uniforms.scale) + uniforms.position;
+
+  // Conversion: [0..gameDimensions] -> [0..1] -> [0..2] -> [-1..1]
+  var clipSpacePosition = (gamePosition / uniforms.gameDimensions * 2) - 1;
 
   var output: VertexShaderOutput;
-  output.position = vec4<f32>(clipX, clipY, 0.0, 1.0);
+  output.position = vec4<f32>(clipSpacePosition, 0.0, 1.0);
   output.color = uniforms.color;
   return output;
 }
