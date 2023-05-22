@@ -71,6 +71,25 @@ export function drawColoredQuad(device: GPUDevice,
     }],
   });
 
+  // @speed We should probably be doing more work within a single encoder.
+  // Look at adding them to a queue that we flush, or a callback...
+  // Perhaps code calling these functions would look like this instead:
+  //   beginDrawingQuads(device, context, (renderer) => {
+  //     renderer.draw(x0, y0, width0, height0, color0);
+  //     renderer.draw(x1, y1, width1, height1, color1);
+  //     ...
+  //   });
+  // Or it could be a builder pattern (I think I like this more):
+  //   beginDrawingQuads(device, context)
+  //     .draw(x0, y0, width0, height0, color0)
+  //     .draw(x1, y1, width1, height1, color1)
+  //     .submit();
+  // I think the builder pattern better captures the nature of the underlying
+  // platform instead of trying to enforce a leaky abstraction.
+  //
+  // This might all be overkill though as we could likely handle it by just having
+  // a submit() function here that handles "flushing" all the render calls. Lots of value
+  // in KISS.
   const commandEncoder = device.createCommandEncoder();
   const renderPass = commandEncoder.beginRenderPass({
     label: "Simple quad rendering pass",
