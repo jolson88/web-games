@@ -31,7 +31,7 @@ function render(): void {
   Graphics.clearScreen({ r: 0.0, g: 0.0, b: 0.0 });
 
   Graphics.drawQuad(
-    { x: 100, y: 100 },
+    { x: 100, y: 100, z: 1 },
     { width: 50, height: 50 },
     { r: 1.0, g: 0.0, b: 0.0 }
   );

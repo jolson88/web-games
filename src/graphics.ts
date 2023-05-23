@@ -12,6 +12,10 @@ export interface Vector2 {
   y: number,
 }
 
+export interface Vector3 extends Vector2 {
+  z?: number,
+}
+
 export interface Dimensions {
   width: number,
   height: number,
@@ -93,7 +97,7 @@ export function clearScreen(color: Color): void {
 }
 
 export function drawQuad(
-  position: Vector2,
+  position: Vector3,
   dimensions: Dimensions,
   color: Color,
 ): void {
@@ -102,10 +106,10 @@ export function drawQuad(
   }
 
   const uniformValues = new Float32Array([
-    screenWidth, screenHeight,
-    position.x, position.y,
+    screenWidth, screenHeight, 1.0, 0.0,
+    position.x, position.y, position.z ?? 0.0, 0.0,
+    dimensions.width, dimensions.height, 0.0, 0.0,
     color.r, color.g, color.b, color.a ?? 1.0,
-    dimensions.width, dimensions.height,
   ]);
   const uniformBuffer = createBuffer(
     uniformValues,
