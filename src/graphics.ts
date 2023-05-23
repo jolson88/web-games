@@ -1,5 +1,4 @@
 import shaderCode from "./shaders/simpleShader.wgsl";
-import { FLOAT32_SIZE, GAME_HEIGHT, GAME_WIDTH } from "./constants";
 
 export interface Color {
   r: number,
@@ -24,11 +23,56 @@ interface RenderSimpleQuadRequest {
   uniformBindGroup: GPUBindGroup,
 }
 
+const FLOAT32_SIZE = 4;
+
+let device: GPUDevice;
+let context: GPUCanvasContext;
+let screenWidth: number;
+let screenHeight: number;
+
 let simpleQuadPipeline: GPURenderPipeline;
 let simpleQuadVertexBuffer: GPUBuffer;
 let simpleQuadRenderRequests: Array<RenderSimpleQuadRequest> = [];
 
-export function clearScreen(device: GPUDevice, context: GPUCanvasContext, color: Color): void {
+export async function initialize(canvasId: string, gameWidth: number, gameHeight: number): Promise<void> {
+  screenWidth = gameWidth;
+  screenHeight = gameHeight;
+  const aspectRatio = gameWidth / gameHeight;
+
+  if (!navigator.gpu) {
+    throw new Error("This browser does not support WebGPU");
+  }
+
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error("This browser supports WebGPU but it appears disabled");
+  }
+
+  device = await adapter.requestDevice();
+
+  const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
+  const devicePixelRatio = window.devicePixelRatio || 1;
+  const height = window.innerHeight * devicePixelRatio;
+  canvas.height = Math.min(height, device.limits.maxTextureDimension2D);
+  canvas.width = Math.min(
+    height * aspectRatio,
+    device.limits.maxTextureDimension2D
+  );
+
+  const contextCheck = canvas.getContext("webgpu");
+  const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  if (!contextCheck) {
+    throw new Error("WebGPU not supported");
+  }
+  context = contextCheck;
+  context.configure({
+    device,
+    format: canvasFormat,
+    alphaMode: "premultiplied"
+  });
+}
+
+export function clearScreen(color: Color): void {
   simpleQuadRenderRequests.splice(0, simpleQuadRenderRequests.length);
 
   const commandEncoder = device.createCommandEncoder();
@@ -48,23 +92,22 @@ export function clearScreen(device: GPUDevice, context: GPUCanvasContext, color:
   device.queue.submit([commandEncoder.finish()]);
 }
 
-export function drawColoredQuad(device: GPUDevice,
+export function drawQuad(
   position: Vector2,
   dimensions: Dimensions,
   color: Color,
 ): void {
   if (!simpleQuadPipeline) {
-    createSimpleQuadPipeline(device);
+    createSimpleQuadPipeline();
   }
 
   const uniformValues = new Float32Array([
-    GAME_WIDTH, GAME_HEIGHT,
+    screenWidth, screenHeight,
     position.x, position.y,
     color.r, color.g, color.b, color.a ?? 1.0,
     dimensions.width, dimensions.height,
   ]);
   const uniformBuffer = createBuffer(
-    device,
     uniformValues,
     GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   );
@@ -85,13 +128,13 @@ export function drawColoredQuad(device: GPUDevice,
   });
 }
 
-export function submit(device: GPUDevice, context: GPUCanvasContext): void {
-  submitSimpleQuads(device, context);
+export function submit(): void {
+  submitSimpleQuads();
 }
 
-function submitSimpleQuads(device: GPUDevice, context: GPUCanvasContext): void {
+function submitSimpleQuads(): void {
   if (!simpleQuadPipeline) {
-    createSimpleQuadPipeline(device);
+    createSimpleQuadPipeline();
   }
 
   let renderRequest: RenderSimpleQuadRequest;
@@ -123,15 +166,14 @@ function submitSimpleQuads(device: GPUDevice, context: GPUCanvasContext): void {
   simpleQuadRenderRequests.slice(0, simpleQuadRenderRequests.length);
 }
 
-function alignToBytes(bytes: number, value: number): number {
-  return (value + (bytes - 1)) & ~(bytes - 1);
-}
-
 function createBuffer(
-  device: GPUDevice,
   data: Float32Array | Uint16Array,
   bufferUsage: number
 ): GPUBuffer {
+  function alignToBytes(bytes: number, value: number): number {
+    return (value + (bytes - 1)) & ~(bytes - 1);
+  }
+
   const isUniform = new Boolean(bufferUsage & GPUBufferUsage.UNIFORM);
   let bufferDescription: GPUBufferDescriptor = {
     size: isUniform ? alignToBytes(16, data.byteLength) : alignToBytes(4, data.byteLength),
@@ -148,7 +190,7 @@ function createBuffer(
   return buffer;
 }
 
-function createSimpleQuadPipeline(device: GPUDevice): void {
+function createSimpleQuadPipeline(): void {
   const quadVertexBufferLayout: GPUVertexBufferLayout = {
     arrayStride: FLOAT32_SIZE * 2,
     attributes: [{
@@ -158,7 +200,6 @@ function createSimpleQuadPipeline(device: GPUDevice): void {
     }],
   };
   simpleQuadVertexBuffer = createBuffer(
-    device,
     new Float32Array([
       -0.5, 0.5,
       0.5, 0.5,
