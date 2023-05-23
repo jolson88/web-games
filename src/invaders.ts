@@ -31,19 +31,19 @@ function render(): void {
   Graphics.clearScreen({ r: 0.0, g: 0.0, b: 0.0 });
 
   Graphics.drawQuad(
-    { x: 100, y: 100, z: 1 },
+    { x: 130, y: 130, z: 0.2 },
     { width: 50, height: 50 },
-    { r: 1.0, g: 0.0, b: 0.0 }
+    { r: 0.0, g: 0.0, b: 1.0 }
+  );
+  Graphics.drawQuad(
+    { x: 100, y: 100, z: 0.8 },
+    { width: 50, height: 50 },
+    { r: 1.0, g: 0.0, b: 0.0, a: 0.5 }
   );
   Graphics.drawQuad(
     { x: 100, y: 200 },
     { width: 190, height: 5 },
     { r: 0.0, g: 1.0, b: 0.0 }
-  );
-  Graphics.drawQuad(
-    { x: 130, y: 130 },
-    { width: 50, height: 50 },
-    { r: 0.0, g: 0.0, b: 1.0 }
   );
 
   Graphics.submit();

@@ -1,4 +1,4 @@
-import shaderCode from "./shaders/simpleShader.wgsl";
+import shaderCode from './shaders/simpleShader.wgsl';
 
 export interface Color {
   r: number,
@@ -31,6 +31,7 @@ const FLOAT32_SIZE = 4;
 
 let device: GPUDevice;
 let context: GPUCanvasContext;
+let depthTexture: GPUTexture;
 let screenWidth: number;
 let screenHeight: number;
 
@@ -44,12 +45,12 @@ export async function initialize(canvasId: string, gameWidth: number, gameHeight
   const aspectRatio = gameWidth / gameHeight;
 
   if (!navigator.gpu) {
-    throw new Error("This browser does not support WebGPU");
+    throw new Error('This browser does not support WebGPU');
   }
 
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
-    throw new Error("This browser supports WebGPU but it appears disabled");
+    throw new Error('This browser supports WebGPU but it appears disabled');
   }
 
   device = await adapter.requestDevice();
@@ -63,33 +64,51 @@ export async function initialize(canvasId: string, gameWidth: number, gameHeight
     device.limits.maxTextureDimension2D
   );
 
-  const contextCheck = canvas.getContext("webgpu");
+  const contextCheck = canvas.getContext('webgpu');
   const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
   if (!contextCheck) {
-    throw new Error("WebGPU not supported");
+    throw new Error('WebGPU not supported');
   }
   context = contextCheck;
   context.configure({
     device,
     format: canvasFormat,
-    alphaMode: "premultiplied"
+    alphaMode: 'premultiplied'
+  });
+
+  const canvasTexture = context.getCurrentTexture();
+  if (depthTexture) {
+    depthTexture.destroy();
+  }
+  depthTexture = device.createTexture({
+    size: [canvasTexture.width, canvasTexture.height],
+    format: 'depth24plus',
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
   });
 }
 
 export function clearScreen(color: Color): void {
   simpleQuadRenderRequests.splice(0, simpleQuadRenderRequests.length);
 
+  const canvasTexture = context.getCurrentTexture();
+
   const commandEncoder = device.createCommandEncoder();
   const renderPassDescriptor: GPURenderPassDescriptor = {
-    label: "Clearing pass",
+    label: 'Clearing pass',
     colorAttachments: [
       {
-        view: context.getCurrentTexture().createView(),
+        view: canvasTexture.createView(),
         clearValue: { r: color.r, g: color.g, b: color.b, a: color.a ?? 1.0 },
-        loadOp: "clear",
-        storeOp: "store",
+        loadOp: 'clear',
+        storeOp: 'store',
       },
     ],
+    depthStencilAttachment: {
+      view: depthTexture.createView(),
+      depthClearValue: 0.0,
+      depthLoadOp: 'clear',
+      depthStoreOp: 'store',
+    }
   };
   const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
   renderPass.end();
@@ -142,25 +161,32 @@ function submitSimpleQuads(): void {
   }
 
   let renderRequest: RenderSimpleQuadRequest;
+  const canvasTexture = context.getCurrentTexture();
   const commandEncoder = device.createCommandEncoder();
+  const renderPass = commandEncoder.beginRenderPass({
+    label: `Simple rendering pass for quads`,
+    colorAttachments: [{
+      view: canvasTexture.createView(),
+      loadOp: 'load',
+      storeOp: 'store',
+    }],
+    depthStencilAttachment: {
+      view: depthTexture.createView(),
+      depthClearValue: 0.0,
+      depthLoadOp: 'clear',
+      depthStoreOp: 'store',
+    },
+  });
   for (let i = 0; i < simpleQuadRenderRequests.length; i++) {
     renderRequest = simpleQuadRenderRequests[i];
-    const renderPass = commandEncoder.beginRenderPass({
-      label: `Simple rendering pass for quad ${i}`,
-      colorAttachments: [{
-        view: context.getCurrentTexture().createView(),
-        loadOp: "load",
-        storeOp: "store",
-      }],
-    });
     device.queue.writeBuffer(renderRequest.uniformBuffer, 0, renderRequest.uniformValues);
     renderPass.setBindGroup(0, renderRequest.uniformBindGroup);
     renderPass.setVertexBuffer(0, simpleQuadVertexBuffer);
     renderPass.setPipeline(simpleQuadPipeline);
     renderPass.draw(3, 1, 0);
     renderPass.draw(3, 1, 3);
-    renderPass.end();
   }
+  renderPass.end();
   device.queue.submit([commandEncoder.finish()]);
 
   for (let renderRequest of simpleQuadRenderRequests) {
@@ -199,7 +225,7 @@ function createSimpleQuadPipeline(): void {
     arrayStride: FLOAT32_SIZE * 2,
     attributes: [{
       shaderLocation: 0,
-      format: "float32x2",
+      format: 'float32x2',
       offset: 0,
     }],
   };
@@ -216,23 +242,40 @@ function createSimpleQuadPipeline(): void {
   );
 
   simpleQuadPipeline = device.createRenderPipeline({
-    layout: "auto",
+    layout: 'auto',
     vertex: {
       module: device.createShaderModule({
         code: shaderCode,
       }),
-      entryPoint: "vertexMain",
+      entryPoint: 'vertexMain',
       buffers: [quadVertexBufferLayout],
     },
     fragment: {
       module: device.createShaderModule({
         code: shaderCode,
       }),
-      entryPoint: "fragmentMain",
-      targets: [{ format: navigator.gpu.getPreferredCanvasFormat() }],
+      entryPoint: 'fragmentMain',
+      targets: [{ 
+        format: navigator.gpu.getPreferredCanvasFormat(),
+        blend: {
+          alpha: {
+            dstFactor: 'one-minus-src-alpha',
+          },
+          color: {
+            dstFactor: 'one-minus-src',
+            operation: 'add'
+          }
+        }
+      }],
     },
     primitive: {
-      topology: "triangle-list",
+      topology: 'triangle-list',
+      cullMode: 'front',
     },
+    depthStencil: {
+      depthWriteEnabled: true,
+      depthCompare: 'greater-equal',
+      format: 'depth24plus',
+    }
   });
 }
