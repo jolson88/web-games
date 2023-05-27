@@ -51,6 +51,12 @@ function render(): void {
     { r: 0.3, g: 0.3, b: 0.6 }
   );
 
+  Graphics.drawCircle(
+    { x: 70, y: 160 },
+    70,
+    { r: 0.7, g: 0.3, b: 0.4, a: 0.6 }
+  );
+
   Graphics.submit();
 }
 

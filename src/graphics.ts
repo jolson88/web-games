@@ -21,13 +21,19 @@ export interface Dimensions {
   height: number,
 }
 
-export enum RenderRequestType {
+export enum LightMedium {
   Opaque,
   Transparent
 };
 
+export enum RenderType {
+  Circle,
+  Quad,
+}
+
 interface RenderRequest {
-  type: RenderRequestType,
+  type: RenderType,
+  lightMedium: LightMedium,
   position: Vector3,
   uniformValues: Float32Array,
   uniformBuffer: GPUBuffer,
@@ -35,6 +41,8 @@ interface RenderRequest {
 }
 
 const FLOAT32_SIZE = 4;
+const TAU = 2 * Math.PI;
+const CIRCLE_FACES = 64;
 
 let device: GPUDevice;
 let context: GPUCanvasContext;
@@ -47,6 +55,7 @@ let opaqueRenderPipeline: GPURenderPipeline;
 let transparentRenderPipeline: GPURenderPipeline;
 let uniformBindGroupLayout: GPUBindGroupLayout;
 
+let circleVertexBuffer: GPUBuffer;
 let simpleQuadVertexBuffer: GPUBuffer;
 
 export async function initialize(canvasId: string, gameWidth: number, gameHeight: number): Promise<void> {
@@ -66,8 +75,7 @@ export async function initialize(canvasId: string, gameWidth: number, gameHeight
   device = await adapter.requestDevice();
 
   const canvas = document.getElementById(canvasId) as HTMLCanvasElement;
-  const devicePixelRatio = window.devicePixelRatio || 1;
-  const height = window.innerHeight * devicePixelRatio;
+  const height = window.innerHeight;
   canvas.height = Math.min(height, device.limits.maxTextureDimension2D);
   canvas.width = Math.min(
     height * aspectRatio,
@@ -126,18 +134,17 @@ export function clearScreen(color: Color): void {
   device.queue.submit([commandEncoder.finish()]);
 }
 
-export function drawQuad(
-  position: Vector3,
-  dimensions: Dimensions,
-  color: Color,
-): void {
-  const alpha = color.a ?? 1.0;
-  const uniformValues = new Float32Array([
+function createUniformValues(position: Vector3, dimensions: Dimensions, color: Color): Float32Array {
+  return new Float32Array([
     screenWidth, screenHeight, 1.0, 0.0,
     position.x, position.y, position.z ?? 0.0, 0.0,
     dimensions.width, dimensions.height, 0.0, 0.0,
-    color.r, color.g, color.b, 1.0, // TODO: Restore alpha,
+    color.r, color.g, color.b, color.a ?? 1.0,
   ]);
+}
+
+export function drawCircle(position: Vector3, radius: number, color: Color): void {
+  const uniformValues = createUniformValues(position, { width: radius, height: radius }, color);
   const uniformBuffer = createBuffer(
     uniformValues,
     GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -152,13 +159,55 @@ export function drawQuad(
     }],
   });
 
+  const alpha = color.a ?? 1.0;
   pendingRenderRequests.push({
-    type: (alpha < 1.0) ? RenderRequestType.Transparent : RenderRequestType.Opaque,
+    type: RenderType.Circle,
+    lightMedium: (alpha < 1.0) ? LightMedium.Transparent : LightMedium.Opaque,
     position,
     uniformValues,
     uniformBuffer,
     uniformBindGroup
   });
+}
+
+export function drawQuad(
+  position: Vector3,
+  dimensions: Dimensions,
+  color: Color,
+): void {
+  const uniformValues = createUniformValues(position, dimensions, color);
+  const uniformBuffer = createBuffer(
+    uniformValues,
+    GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  );
+  const uniformBindGroup = device.createBindGroup({
+    layout: uniformBindGroupLayout,
+    entries: [{
+      binding: 0,
+      resource: {
+        buffer: uniformBuffer,
+      },
+    }],
+  });
+
+  const alpha = color.a ?? 1.0;
+  pendingRenderRequests.push({
+    type: RenderType.Quad,
+    lightMedium: (alpha < 1.0) ? LightMedium.Transparent : LightMedium.Opaque,
+    position,
+    uniformValues,
+    uniformBuffer,
+    uniformBindGroup
+  });
+}
+
+export function submit(): void {
+  sortRenderingRequestsByDistance();
+
+  submitRenderRequests(LightMedium.Opaque);
+  submitRenderRequests(LightMedium.Transparent);
+
+  pendingRenderRequests = [];
 }
 
 function sortRenderingRequestsByDistance(): void {
@@ -171,22 +220,13 @@ function sortRenderingRequestsByDistance(): void {
   });
 }
 
-export function submit(): void {
-  sortRenderingRequestsByDistance();
-
-  submitRenderRequests(RenderRequestType.Opaque);
-  submitRenderRequests(RenderRequestType.Transparent);
-
-  pendingRenderRequests = [];
-}
-
-function submitRenderRequests(typeToSubmit: RenderRequestType): void {
+function submitRenderRequests(typeToSubmit: LightMedium): void {
   let renderRequest: RenderRequest;
   const canvasTexture = context.getCurrentTexture();
   const commandEncoder = device.createCommandEncoder();
   for (let i = 0; i < pendingRenderRequests.length; i++) {
     renderRequest = pendingRenderRequests[i];
-    if (renderRequest.type !== typeToSubmit) {
+    if (renderRequest.lightMedium !== typeToSubmit) {
       continue;
     }
 
@@ -206,13 +246,35 @@ function submitRenderRequests(typeToSubmit: RenderRequestType): void {
     });
     device.queue.writeBuffer(renderRequest.uniformBuffer, 0, renderRequest.uniformValues);
     renderPass.setBindGroup(0, renderRequest.uniformBindGroup);
-    renderPass.setVertexBuffer(0, simpleQuadVertexBuffer);
-    renderPass.setPipeline(typeToSubmit === RenderRequestType.Opaque ? opaqueRenderPipeline : transparentRenderPipeline);
-    renderPass.draw(3, 1, 0);
-    renderPass.draw(3, 1, 3);
-    renderPass.end();
+    renderPass.setPipeline(typeToSubmit === LightMedium.Opaque ? opaqueRenderPipeline : transparentRenderPipeline);
+
+    if (renderRequest.type === RenderType.Quad) {
+      renderPass.setVertexBuffer(0, simpleQuadVertexBuffer);
+      renderPass.draw(3, 1, 0);
+      renderPass.draw(3, 1, 3);
+      renderPass.end();
+      continue;
+    }
+
+    if (renderRequest.type === RenderType.Circle) {
+      renderPass.setVertexBuffer(0, circleVertexBuffer);
+      for (let i = 0; i < CIRCLE_FACES; i++) {
+        renderPass.draw(3, 1, i * 3);
+      }
+      renderPass.end();
+      continue;
+    }
   }
   device.queue.submit([commandEncoder.finish()]);
+}
+
+function convertVector2ArrayToFloat32Array(input: Array<Vector2>): Float32Array {
+  const numbers = new Array<number>();
+  for (let vector of input) {
+    numbers.push(vector.x);
+    numbers.push(vector.y);
+  }
+  return new Float32Array(numbers);
 }
 
 function createBuffer(
@@ -240,24 +302,37 @@ function createBuffer(
 }
 
 function createPipelines(): void {
-  const quadVertexBufferLayout: GPUVertexBufferLayout = {
-    arrayStride: FLOAT32_SIZE * 2,
-    attributes: [{
-      shaderLocation: 0,
-      format: 'float32x2',
-      offset: 0,
-    }],
-  };
   simpleQuadVertexBuffer = createBuffer(
-    new Float32Array([
-      -0.5, 0.5,
-      0.5, 0.5,
-      -0.5, -0.5,
-      -0.5, -0.5,
-      0.5, 0.5,
-      0.5, -0.5,
+    convertVector2ArrayToFloat32Array([
+      { x: -0.5, y: 0.5 },
+      { x: 0.5, y: 0.5 },
+      { x: -0.5, y: -0.5 },
+      { x: -0.5, y: -0.5 },
+      { x: 0.5, y: 0.5 },
+      { x: 0.5, y: -0.5 },
     ]),
     GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+  );
+
+  const sliceRadians = TAU / CIRCLE_FACES;
+  const circlePoints = new Array<Vector2>(CIRCLE_FACES);
+  for (let i = 0; i < CIRCLE_FACES; i++) {
+    const unitX = Math.sin(sliceRadians * i) * 0.5;
+    const unitY = Math.cos(sliceRadians * i) * 0.5;
+    circlePoints[i] = { x: unitX, y: unitY };
+  }
+
+  const centerVertex = { x: 0, y: 0 };
+  const circleVertices = new Array<Vector2>(CIRCLE_FACES * 3);
+  for (let i = 0; i < CIRCLE_FACES; i++) {
+    circleVertices[i * 3] = centerVertex;
+    circleVertices[i * 3 + 1] = circlePoints[i];
+    circleVertices[i * 3 + 2] = circlePoints[(i + 1) % CIRCLE_FACES];
+  }
+
+  circleVertexBuffer = createBuffer(
+    convertVector2ArrayToFloat32Array(circleVertices),
+    GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   );
 
   uniformBindGroupLayout = device.createBindGroupLayout({
@@ -270,6 +345,14 @@ function createPipelines(): void {
     ]
   });
 
+  const vertexBufferLayout: GPUVertexBufferLayout = {
+    arrayStride: FLOAT32_SIZE * 2,
+    attributes: [{
+      shaderLocation: 0,
+      format: 'float32x2',
+      offset: 0,
+    }],
+  };
   opaqueRenderPipeline = device.createRenderPipeline({
     layout: device.createPipelineLayout({
       bindGroupLayouts: [uniformBindGroupLayout],
@@ -279,7 +362,7 @@ function createPipelines(): void {
         code: shaderCode,
       }),
       entryPoint: 'vertexMain',
-      buffers: [quadVertexBufferLayout],
+      buffers: [vertexBufferLayout],
     },
     fragment: {
       module: device.createShaderModule({
@@ -322,7 +405,7 @@ function createPipelines(): void {
         code: shaderCode,
       }),
       entryPoint: 'vertexMain',
-      buffers: [quadVertexBufferLayout],
+      buffers: [vertexBufferLayout],
     },
     fragment: {
       module: device.createShaderModule({
